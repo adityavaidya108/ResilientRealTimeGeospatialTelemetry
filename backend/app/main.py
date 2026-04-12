@@ -11,7 +11,11 @@ from pydantic import ValidationError
 from backend.app.config import settings
 from backend.app.dependencies import close_redis_client, create_redis_client
 from backend.app.models import TelemetryAck, parse_client_message, server_message_to_json_dict
-from backend.app.services.geospatial_service import add_or_update_location
+from backend.app.services.telemetry_service import (
+    handle_bulk_sync,
+    handle_ride_request,
+    handle_telemetry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,7 @@ async def health() -> dict[str, str]:
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
+    redis_client = websocket.app.state.redis
 
     try:
         while True:
@@ -73,47 +78,25 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 continue
 
             if message.type == "telemetry":
-                await add_or_update_location(
-                    redis=websocket.app.state.redis,
-                    key=settings.redis_drivers_geo_key,
-                    member_id=message.device_id,
-                    longitude=message.longitude,
-                    latitude=message.latitude,
+                response = await handle_telemetry(
+                    redis=redis_client,
+                    settings=settings,
+                    message=message,
                 )
-                response = TelemetryAck(
-                    device_id=message.device_id,
-                    accepted=True,
-                    sequence_no=message.sequence_no,
-                )
-                await websocket.send_json(server_message_to_json_dict(response))
-
             elif message.type == "bulk_sync":
-                last_seq = None
-                for item in message.items:
-                    await add_or_update_location(
-                        redis=websocket.app.state.redis,
-                        key=settings.redis_drivers_geo_key,
-                        member_id=message.device_id,
-                        longitude=item.longitude,
-                        latitude=item.latitude,
-                    )
-                    last_seq = item.sequence_no if item.sequence_no is not None else last_seq
-
-                response = TelemetryAck(
-                    device_id=message.device_id,
-                    accepted=True,
-                    sequence_no=last_seq,
+                response = await handle_bulk_sync(
+                    redis=redis_client,
+                    settings=settings,
+                    message=message,
                 )
-                await websocket.send_json(server_message_to_json_dict(response))
-
-            elif message.type == "ride_request":
-                await websocket.send_json(
-                    {
-                        "type": "ride_request_received",
-                        "rider_id": message.rider_id,
-                        "request_id": message.request_id,
-                    }
+            else:
+                response = await handle_ride_request(
+                    redis=redis_client,
+                    settings=settings,
+                    message=message,
                 )
+
+            await websocket.send_json(server_message_to_json_dict(response))
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected")

@@ -50,7 +50,8 @@ async def add_or_update_location(
     latitude: float,
 ) -> int:
     """GEOADD one member. Returns count of new elements added (0 if updated only)."""
-    n = await redis.geoadd(key, [(longitude, latitude, member_id)])
+    # redis-py expects a flat sequence: lon, lat, member, ...
+    n = await redis.geoadd(key, [longitude, latitude, member_id])
     return int(n) if n is not None else 0
 
 
