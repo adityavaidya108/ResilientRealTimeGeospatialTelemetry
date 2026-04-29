@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from backend.app.config import settings
 from backend.app.connection_manager import ConnectionManager
+from backend.app.demo_metrics import DemoMetrics, run_demo_metrics_logger
 from backend.app.dependencies import close_redis_client, create_redis_client
 from backend.app.models import TelemetryAck, parse_client_message, server_message_to_json_dict
 from backend.app.services.telemetry_service import (
@@ -27,24 +28,37 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     redis_client = await create_redis_client(settings)
     connection_manager = ConnectionManager()
+    demo_metrics = DemoMetrics()
     geofence_worker_task = asyncio.create_task(
         run_geofence_entry_worker(
             redis=redis_client,
             settings=settings,
             connection_manager=connection_manager,
+            metrics=demo_metrics,
+        )
+    )
+    demo_metrics_logger_task = asyncio.create_task(
+        run_demo_metrics_logger(
+            metrics=demo_metrics,
+            connection_manager=connection_manager,
+            interval_seconds=settings.demo_metrics_log_interval_seconds,
         )
     )
     app.state.redis = redis_client
     app.state.connection_manager = connection_manager
+    app.state.demo_metrics = demo_metrics
     app.state.geofence_worker_task = geofence_worker_task
+    app.state.demo_metrics_logger_task = demo_metrics_logger_task
     try:
         yield
     finally:
         geofence_worker_task.cancel()
-        try:
-            await geofence_worker_task
-        except asyncio.CancelledError:
-            pass
+        demo_metrics_logger_task.cancel()
+        for task in (geofence_worker_task, demo_metrics_logger_task):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await close_redis_client(redis_client)
 
 
@@ -62,6 +76,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     redis_client = websocket.app.state.redis
     connection_manager = websocket.app.state.connection_manager
+    demo_metrics = websocket.app.state.demo_metrics
 
     try:
         while True:
@@ -99,12 +114,15 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if message.type == "telemetry":
                 await connection_manager.register(message.device_id, websocket)
+                await demo_metrics.inc("telemetry_messages")
                 response = await handle_telemetry(
                     redis=redis_client,
                     settings=settings,
                     message=message,
                 )
             elif message.type == "bulk_sync":
+                await demo_metrics.inc("bulk_sync_messages")
+                await demo_metrics.inc("bulk_sync_items", len(message.items))
                 response = await handle_bulk_sync(
                     redis=redis_client,
                     settings=settings,
@@ -121,4 +139,5 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     except WebSocketDisconnect:
         await connection_manager.remove_websocket(websocket)
+        await demo_metrics.inc("websocket_disconnects")
         logger.info("WebSocket disconnected")

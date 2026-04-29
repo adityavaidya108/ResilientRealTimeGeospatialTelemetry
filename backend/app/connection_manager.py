@@ -33,3 +33,7 @@ class ConnectionManager:
             ]
             for device_id in stale_ids:
                 self._connections.pop(device_id, None)
+
+    async def count(self) -> int:
+        async with self._lock:
+            return len(self._connections)

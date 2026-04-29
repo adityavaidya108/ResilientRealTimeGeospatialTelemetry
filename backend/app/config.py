@@ -17,6 +17,8 @@ Environment variables (all optional unless noted):
         Second, more frequent tier (defaults: 300 s, 1.0 mi).
     WORKER_POLL_INTERVAL_SECONDS
         Sleep between background worker iterations (default: 1.0).
+    DEMO_METRICS_LOG_INTERVAL_SECONDS
+        Console metrics print interval for system demonstration (default: 5.0).
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ class Settings:
     forward_interval_seconds_tier_b: int
     forward_distance_miles_tier_b: float
     worker_poll_interval_seconds: float
+    demo_metrics_log_interval_seconds: float
     log_level: str
     geofences: tuple[CircleGeofence, ...]
 
@@ -81,6 +84,9 @@ class Settings:
             ),
             worker_poll_interval_seconds=_get_float(
                 "WORKER_POLL_INTERVAL_SECONDS", 1.0
+            ),
+            demo_metrics_log_interval_seconds=_get_float(
+                "DEMO_METRICS_LOG_INTERVAL_SECONDS", 5.0
             ),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             geofences=(

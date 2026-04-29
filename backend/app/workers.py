@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 
 from backend.app.config import Settings
 from backend.app.connection_manager import ConnectionManager
+from backend.app.demo_metrics import DemoMetrics
 from backend.app.models import GeofenceEnteredMessage, server_message_to_json_dict
 from backend.app.services.geospatial_service import list_members_within_radius
 
@@ -20,6 +21,7 @@ async def run_geofence_entry_worker(
     redis: Redis,
     settings: Settings,
     connection_manager: ConnectionManager,
+    metrics: DemoMetrics,
 ) -> None:
     """Continuously detect geofence entries and push alerts to active sockets."""
     previous_by_geofence: dict[str, set[str]] = {}
@@ -27,6 +29,7 @@ async def run_geofence_entry_worker(
     while True:
         try:
             for geofence in settings.geofences:
+                await metrics.inc("geofence_checks")
                 members = await list_members_within_radius(
                     redis=redis,
                     key=settings.redis_drivers_geo_key,
@@ -38,6 +41,8 @@ async def run_geofence_entry_worker(
                 current_ids = {member.member_id for member in members}
                 previous_ids = previous_by_geofence.get(geofence.geofence_id, set())
                 newly_entered_ids = current_ids - previous_ids
+                if newly_entered_ids:
+                    await metrics.inc("geofence_entries_detected", len(newly_entered_ids))
 
                 if newly_entered_ids:
                     now_unix = time.time()
@@ -52,6 +57,7 @@ async def run_geofence_entry_worker(
                         )
                         with contextlib.suppress(Exception):
                             await websocket.send_json(server_message_to_json_dict(payload))
+                            await metrics.inc("geofence_alerts_sent")
 
                 previous_by_geofence[geofence.geofence_id] = current_ids
 
