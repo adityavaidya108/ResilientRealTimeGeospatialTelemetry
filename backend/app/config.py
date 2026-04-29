@@ -24,6 +24,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from backend.app.geofences import CircleGeofence
+
 
 def _get_int(name: str, default: int) -> int:
     raw = os.getenv(name)
@@ -52,9 +54,15 @@ class Settings:
     forward_distance_miles_tier_b: float
     worker_poll_interval_seconds: float
     log_level: str
+    geofences: tuple[CircleGeofence, ...]
 
     @classmethod
     def from_env(cls) -> Settings:
+        # Default/demo geofence: Fairfax, VA (approx center). Override via env for experiments.
+        fairfax_center_lat = _get_float("FAIRFAX_CENTER_LAT", 38.8462)
+        fairfax_center_lon = _get_float("FAIRFAX_CENTER_LON", -77.3064)
+        fairfax_radius_m = _get_float("FAIRFAX_RADIUS_M", 5_000.0)
+
         return cls(
             redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
             redis_drivers_geo_key=os.getenv("REDIS_DRIVERS_GEO_KEY", "drivers:geo"),
@@ -75,6 +83,14 @@ class Settings:
                 "WORKER_POLL_INTERVAL_SECONDS", 1.0
             ),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
+            geofences=(
+                CircleGeofence(
+                    geofence_id="fairfax_demo",
+                    center_latitude=fairfax_center_lat,
+                    center_longitude=fairfax_center_lon,
+                    radius_m=fairfax_radius_m,
+                ),
+            ),
         )
 
 

@@ -146,12 +146,22 @@ class AssignmentExpiredMessage(BaseModel):
     rider_id: str
 
 
+class GeofenceEnteredMessage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["geofence_entered"] = "geofence_entered"
+    device_id: str
+    geofence_id: str
+    entered_at_unix: float
+
+
 ServerMessage = (
     TelemetryAck
     | AssignedDriverMessage
     | NoDriverAvailableMessage
     | DriverLocationUpdateMessage
     | AssignmentExpiredMessage
+    | GeofenceEnteredMessage
 )
 
 
